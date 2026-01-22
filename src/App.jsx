@@ -603,7 +603,7 @@ function App() {
       <header className="hero">
         <div>
           <p className="eyebrow">Eisencheck Lab</p>
-          <h1>Excel vergelijken in dezelfde stijl</h1>
+          <h1>Excel vergelijk tool</h1>
           <p className="subtitle">
             Upload twee Excel-bestanden, kies de sleutelkolom en de kolom om te
             vergelijken. De app negeert volgorde en normaliseert onzichtbare
