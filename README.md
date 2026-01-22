@@ -21,9 +21,3 @@ Eisencheck Lab is een webapp om twee Excel-bestanden te vergelijken op basis van
 2) Kies de Sleutel kolommen (Eiscode) en de EisTekst kolommen (meerdere mogelijk).
 3) Klik "Vergelijk bestanden".
 4) Download het Excel-overzicht.
-
-## Ontwikkelen
-```bash
-npm install
-npm run dev
-```
