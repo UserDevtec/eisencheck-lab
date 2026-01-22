@@ -8,8 +8,8 @@ const STATUS_CHANGED = 'Gewijzigd'
 
 const LEGEND_ITEMS = [
   { status: STATUS_UNCHANGED, color: 'green', note: 'Niets veranderd' },
-  { status: STATUS_ADDED, color: 'yellow', note: 'Nieuw toegevoegd in bestand B' },
-  { status: STATUS_CHANGED, color: 'orange', note: 'Waarde gewijzigd t.o.v. bestand A' },
+  { status: STATUS_ADDED, color: 'yellow', note: 'Nieuw toegevoegd in bestand 2' },
+  { status: STATUS_CHANGED, color: 'orange', note: 'Waarde gewijzigd t.o.v. bestand 1' },
 ]
 
 const normalizeVisible = (value) =>
@@ -89,7 +89,7 @@ const compareHeaders = (headersA, headersB) => {
   }
 }
 
-const buildIndex = (rows, keyIndex, valueIndex) => {
+const buildIndex = (rows, keyIndex, valueIndexes) => {
   const map = new Map()
   const keyOrder = []
   const duplicates = new Set()
@@ -107,10 +107,13 @@ const buildIndex = (rows, keyIndex, valueIndex) => {
     }
     const list = map.get(normKey)
     if (list.length) duplicates.add(normKey)
+    const rawValues = valueIndexes.map((valueIndex) => String(row[valueIndex] ?? ''))
+    const normValues = valueIndexes.map((valueIndex) => normalizeVisible(row[valueIndex] ?? ''))
     list.push({
       rawKey: String(rawKey ?? ''),
-      rawValue: String(row[valueIndex] ?? ''),
-      normValue: normalizeVisible(row[valueIndex] ?? ''),
+      rawValues,
+      normValues,
+      normValueKey: JSON.stringify(normValues),
       rowIndex: idx + 2,
     })
   })
@@ -120,9 +123,9 @@ const buildIndex = (rows, keyIndex, valueIndex) => {
 const matchByValue = (listA, listB) => {
   const queuesA = new Map()
   listA.forEach((item) => {
-    const queue = queuesA.get(item.normValue) ?? []
+    const queue = queuesA.get(item.normValueKey) ?? []
     queue.push(item)
-    queuesA.set(item.normValue, queue)
+    queuesA.set(item.normValueKey, queue)
   })
   const matched = []
   const remainingB = []
@@ -148,14 +151,27 @@ const pickIndex = (current, headers, fallback) => {
   return current
 }
 
+const pickIndexes = (current, headers, fallback) => {
+  if (!headers.length) return []
+  const maxIndex = headers.length - 1
+  const next = Array.isArray(current)
+    ? current.map((value) => Number(value)).filter((value) => !Number.isNaN(value))
+    : []
+  const filtered = next
+    .filter((value) => value >= 0 && value <= maxIndex)
+    .map((value) => String(value))
+  if (!filtered.length) return [String(fallback)]
+  return filtered
+}
+
 function App() {
   const [dataA, setDataA] = useState(null)
   const [dataB, setDataB] = useState(null)
   const [error, setError] = useState('')
   const [keyColA, setKeyColA] = useState('')
   const [keyColB, setKeyColB] = useState('')
-  const [compareColA, setCompareColA] = useState('')
-  const [compareColB, setCompareColB] = useState('')
+  const [compareColA, setCompareColA] = useState([])
+  const [compareColB, setCompareColB] = useState([])
   const [results, setResults] = useState(null)
   const [activeTab, setActiveTab] = useState('result')
   const [draggingA, setDraggingA] = useState(false)
@@ -230,7 +246,7 @@ function App() {
         nextItems.push({
           id: 'columns',
           title: 'Stap 2: Kolommen',
-          body: 'Kies de sleutelkolommen en de kolom met eisen-tekst.',
+          body: 'Kies de sleutelkolommen en de kolommen met eisen-tekst.',
           ...(compact
             ? {}
             : {
@@ -327,11 +343,15 @@ function App() {
       if (side === 'A') {
         setDataA(payload)
         setKeyColA((prev) => pickIndex(prev, payload.headers, 0))
-        setCompareColA((prev) => pickIndex(prev, payload.headers, payload.headers.length > 1 ? 1 : 0))
+        setCompareColA((prev) =>
+          pickIndexes(prev, payload.headers, payload.headers.length > 1 ? 1 : 0)
+        )
       } else {
         setDataB(payload)
         setKeyColB((prev) => pickIndex(prev, payload.headers, 0))
-        setCompareColB((prev) => pickIndex(prev, payload.headers, payload.headers.length > 1 ? 1 : 0))
+        setCompareColB((prev) =>
+          pickIndexes(prev, payload.headers, payload.headers.length > 1 ? 1 : 0)
+        )
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -339,21 +359,31 @@ function App() {
     }
   }
 
+  const compareSameSelection =
+    compareColA.length > 0 &&
+    compareColB.length > 0 &&
+    compareColA.length === compareColB.length &&
+    compareColA.every((value, index) => value === compareColB[index])
   const canCompare =
     dataA &&
     dataB &&
     headerCheck?.ok &&
     keyColA !== '' &&
     keyColB !== '' &&
-    compareColA !== '' &&
-    compareColB !== ''
+    compareSameSelection
+  const compareMismatch =
+    compareColA.length > 0 && compareColB.length > 0 && !compareSameSelection
 
-  const oldHeaderLabel = dataA
-    ? `${dataA.headers[Number(compareColA)] || 'EisTekst'} [Oud]`
-    : 'EisTekst [Oud]'
-  const newHeaderLabel = dataB
-    ? `${dataB.headers[Number(compareColB)] || 'EisTekst'} [Nieuw]`
-    : 'EisTekst [Nieuw]'
+  const oldHeaderLabels = dataA
+    ? compareColA.map(
+        (index) => `${dataA.headers[Number(index)] || 'EisTekst'} [Oud]`
+      )
+    : []
+  const newHeaderLabels = dataB
+    ? compareColB.map(
+        (index) => `${dataB.headers[Number(index)] || 'EisTekst'} [Nieuw]`
+      )
+    : []
 
   const runCompare = () => {
     if (!dataA || !dataB) return
@@ -361,14 +391,26 @@ function App() {
     setError('')
     const keyIndexA = Number(keyColA)
     const keyIndexB = Number(keyColB)
-    const valueIndexA = Number(compareColA)
-    const valueIndexB = Number(compareColB)
-    if ([keyIndexA, keyIndexB, valueIndexA, valueIndexB].some((val) => Number.isNaN(val))) {
+    const valueIndexesA = compareColA.map((value) => Number(value))
+    const valueIndexesB = compareColB.map((value) => Number(value))
+    if (
+      [keyIndexA, keyIndexB, ...valueIndexesA, ...valueIndexesB].some((val) =>
+        Number.isNaN(val)
+      )
+    ) {
       setError('Selecteer geldige kolommen om te vergelijken.')
       return
     }
-    const indexA = buildIndex(dataA.rows, keyIndexA, valueIndexA)
-    const indexB = buildIndex(dataB.rows, keyIndexB, valueIndexB)
+    if (valueIndexesA.length !== valueIndexesB.length) {
+      setError('Kies hetzelfde aantal vergelijkkolommen in beide bestanden.')
+      return
+    }
+    if (!compareSameSelection) {
+      setError('Selecteer dezelfde kolommen in beide bestanden.')
+      return
+    }
+    const indexA = buildIndex(dataA.rows, keyIndexA, valueIndexesA)
+    const indexB = buildIndex(dataB.rows, keyIndexB, valueIndexesB)
 
     const rows = []
     const removed = []
@@ -388,8 +430,8 @@ function App() {
           rows.push({
             status: STATUS_ADDED,
             key: item.rawKey,
-            oldValue: '',
-            newValue: item.rawValue,
+            oldValues: valueIndexesA.map(() => ''),
+            newValues: item.rawValues,
           })
           addedCount += 1
         })
@@ -399,7 +441,7 @@ function App() {
         listA.forEach((item) => {
           removed.push({
             key: item.rawKey,
-            oldValue: item.rawValue,
+            oldValues: item.rawValues,
           })
         })
         return
@@ -410,8 +452,8 @@ function App() {
         rows.push({
           status: STATUS_UNCHANGED,
           key: b.rawKey || a.rawKey,
-          oldValue: a.rawValue,
-          newValue: b.rawValue,
+          oldValues: a.rawValues,
+          newValues: b.rawValues,
         })
         unchangedCount += 1
       })
@@ -424,8 +466,8 @@ function App() {
         rows.push({
           status: STATUS_CHANGED,
           key: b.rawKey || a.rawKey,
-          oldValue: a.rawValue,
-          newValue: b.rawValue,
+          oldValues: a.rawValues,
+          newValues: b.rawValues,
         })
         changedCount += 1
       }
@@ -433,15 +475,15 @@ function App() {
         rows.push({
           status: STATUS_ADDED,
           key: item.rawKey,
-          oldValue: '',
-          newValue: item.rawValue,
+          oldValues: valueIndexesA.map(() => ''),
+          newValues: item.rawValues,
         })
         addedCount += 1
       })
       remainingA.forEach((item) => {
         removed.push({
           key: item.rawKey,
-          oldValue: item.rawValue,
+          oldValues: item.rawValues,
         })
       })
     })
@@ -470,10 +512,15 @@ function App() {
     workbook.created = new Date()
 
     const resultSheet = workbook.addWorksheet('Resultaat')
-    const resultHeaders = ['Eiscode', oldHeaderLabel, newHeaderLabel, 'Status']
+    const resultHeaders = ['Eiscode', ...oldHeaderLabels, ...newHeaderLabels, 'Status']
     resultSheet.addRow(resultHeaders)
     results.rows.forEach((row) => {
-      const excelRow = resultSheet.addRow([row.key, row.oldValue, row.newValue, row.status])
+      const excelRow = resultSheet.addRow([
+        row.key,
+        ...row.oldValues,
+        ...row.newValues,
+        row.status,
+      ])
       let fillColor = null
       if (row.status === STATUS_UNCHANGED) fillColor = 'FFE3F5DF'
       if (row.status === STATUS_ADDED) fillColor = 'FFFFF2C5'
@@ -490,9 +537,9 @@ function App() {
     })
 
     const removedSheet = workbook.addWorksheet('Vervallen eisen')
-    removedSheet.addRow(['Eiscode', oldHeaderLabel])
+    removedSheet.addRow(['Eiscode', ...oldHeaderLabels])
     results.removed.forEach((row) => {
-      const excelRow = removedSheet.addRow([row.key, row.oldValue])
+      const excelRow = removedSheet.addRow([row.key, ...row.oldValues])
       excelRow.eachCell((cell) => {
         cell.fill = {
           type: 'pattern',
@@ -507,7 +554,7 @@ function App() {
     LEGEND_ITEMS.forEach((item) => {
       legendSheet.addRow([item.status, item.note, item.color])
     })
-    legendSheet.addRow(['Vervallen', 'Alleen in bestand A', 'red'])
+    legendSheet.addRow(['Vervallen', 'Alleen in bestand 1', 'red'])
 
     const sheets = [resultSheet, removedSheet, legendSheet]
     sheets.forEach((sheet) => {
@@ -544,8 +591,12 @@ function App() {
           <thead>
             <tr>
               <th>Eiscode</th>
-              <th>{oldHeaderLabel}</th>
-              <th>{newHeaderLabel}</th>
+              {oldHeaderLabels.map((label, index) => (
+                <th key={`old-${label}-${index}`}>{label}</th>
+              ))}
+              {newHeaderLabels.map((label, index) => (
+                <th key={`new-${label}-${index}`}>{label}</th>
+              ))}
               <th>Status</th>
             </tr>
           </thead>
@@ -560,8 +611,12 @@ function App() {
               return (
                 <tr key={`${row.key}-${index}`} className={statusClass}>
                   <td>{row.key}</td>
-                  <td>{row.oldValue}</td>
-                  <td>{row.newValue}</td>
+                  {row.oldValues.map((value, valueIndex) => (
+                    <td key={`old-${row.key}-${valueIndex}`}>{value}</td>
+                  ))}
+                  {row.newValues.map((value, valueIndex) => (
+                    <td key={`new-${row.key}-${valueIndex}`}>{value}</td>
+                  ))}
                   <td>{row.status}</td>
                 </tr>
               )
@@ -582,14 +637,18 @@ function App() {
           <thead>
             <tr>
               <th>Eiscode</th>
-              <th>{oldHeaderLabel}</th>
+              {oldHeaderLabels.map((label, index) => (
+                <th key={`removed-${label}-${index}`}>{label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {rowsToRender.map((row, index) => (
               <tr key={`${row.key}-${index}`} className="status-removed">
                 <td>{row.key}</td>
-                <td>{row.oldValue}</td>
+                {row.oldValues.map((value, valueIndex) => (
+                  <td key={`removed-${row.key}-${valueIndex}`}>{value}</td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -605,7 +664,7 @@ function App() {
           <p className="eyebrow">Eisencheck Lab</p>
           <h1>Excel vergelijk tool</h1>
           <p className="subtitle">
-            Upload twee Excel-bestanden, kies de sleutelkolom en de kolom om te
+            Upload twee Excel-bestanden, kies de sleutelkolom en de kolommen om te
             vergelijken. De app negeert volgorde en normaliseert onzichtbare
             tekens zodat alleen zichtbare verschillen tellen.
           </p>
@@ -618,7 +677,7 @@ function App() {
         </div>
         <div className="upload-grid">
           <div className="upload-card">
-            <strong>Bestand A (oud)</strong>
+            <strong>Bestand 1 (oud)</strong>
             <div
               className={`upload ${draggingA ? 'dragging' : ''}`}
               onDragOver={(event) => {
@@ -661,7 +720,7 @@ function App() {
           </div>
 
           <div className="upload-card">
-            <strong>Bestand B (nieuw)</strong>
+            <strong>Bestand 2 (nieuw)</strong>
             <div
               className={`upload ${draggingB ? 'dragging' : ''}`}
               onDragOver={(event) => {
@@ -712,7 +771,7 @@ function App() {
         </div>
         <div className="select-grid">
           <div className="select-field">
-            <label htmlFor="keyA">Eiscode kolom (A)</label>
+            <label htmlFor="keyA">Sleutel kolom (bestand 1)</label>
             <select
               id="keyA"
               value={keyColA}
@@ -730,7 +789,7 @@ function App() {
             </select>
           </div>
           <div className="select-field">
-            <label htmlFor="keyB">Eiscode kolom (B)</label>
+            <label htmlFor="keyB">Sleutel kolom (bestand 2)</label>
             <select
               id="keyB"
               value={keyColB}
@@ -748,16 +807,18 @@ function App() {
             </select>
           </div>
           <div className="select-field">
-            <label htmlFor="compareA">Vergelijk kolom (A)</label>
+            <label htmlFor="compareA">Vergelijk kolom (bestand 1)</label>
             <select
               id="compareA"
+              multiple
               value={compareColA}
-              onChange={(event) => setCompareColA(event.target.value)}
+              onChange={(event) =>
+                setCompareColA(
+                  Array.from(event.target.selectedOptions, (option) => option.value)
+                )
+              }
               disabled={!dataA}
             >
-              <option value="" disabled>
-                Kies kolom
-              </option>
               {dataA?.headers.map((header, index) => (
                 <option key={`a-comp-${header}-${index}`} value={String(index)}>
                   {header || `(kolom ${index + 1})`}
@@ -766,16 +827,18 @@ function App() {
             </select>
           </div>
           <div className="select-field">
-            <label htmlFor="compareB">Vergelijk kolom (B)</label>
+            <label htmlFor="compareB">Vergelijk kolom (bestand 2)</label>
             <select
               id="compareB"
+              multiple
               value={compareColB}
-              onChange={(event) => setCompareColB(event.target.value)}
+              onChange={(event) =>
+                setCompareColB(
+                  Array.from(event.target.selectedOptions, (option) => option.value)
+                )
+              }
               disabled={!dataB}
             >
-              <option value="" disabled>
-                Kies kolom
-              </option>
               {dataB?.headers.map((header, index) => (
                 <option key={`b-comp-${header}-${index}`} value={String(index)}>
                   {header || `(kolom ${index + 1})`}
@@ -788,13 +851,18 @@ function App() {
           <div className="error">
             Headers komen niet overeen.
             {headerCheck.missingInA.length ? (
-              <div>Ontbreekt in A: {headerCheck.missingInA.join(', ')}</div>
+              <div>Ontbreekt in bestand 1: {headerCheck.missingInA.join(', ')}</div>
             ) : null}
             {headerCheck.missingInB.length ? (
-              <div>Ontbreekt in B: {headerCheck.missingInB.join(', ')}</div>
+              <div>Ontbreekt in bestand 2: {headerCheck.missingInB.join(', ')}</div>
             ) : null}
           </div>
         ) : null}
+        {compareMismatch ? (
+          <div className="error">Selecteer dezelfde kolommen in beide bestanden.</div>
+        ) : null}
+        <p className="note">Gebruik Eiscode als sleutelkolom.</p>
+        <p className="note">Gebruik Ctrl of Shift om meerdere kolommen te selecteren.</p>
         <p className="note">
           Vergelijking negeert dubbele spaties, returns en onzichtbare tekens.
         </p>
@@ -836,7 +904,7 @@ function App() {
           <div className="stat-card">
             <p className="stat-label">Toegevoegd</p>
             <p className="stat-value">{results?.stats.added ?? 0}</p>
-            <p className="stat-note">Alleen in bestand B</p>
+            <p className="stat-note">Alleen in bestand 2</p>
           </div>
           <div className="stat-card">
             <p className="stat-label">Gewijzigd</p>
@@ -846,7 +914,7 @@ function App() {
           <div className="stat-card">
             <p className="stat-label">Vervallen eisen</p>
             <p className="stat-value">{results?.stats.removed ?? 0}</p>
-            <p className="stat-note">Alleen in bestand A</p>
+            <p className="stat-note">Alleen in bestand 1</p>
           </div>
         </div>
 
@@ -857,7 +925,7 @@ function App() {
         ) : null}
         {(results?.emptyKeysA || results?.emptyKeysB) && results ? (
           <div className="warning">
-            Lege sleutelwaarden genegeerd (A: {results.emptyKeysA}, B: {results.emptyKeysB}).
+            Lege sleutelwaarden genegeerd (bestand 1: {results.emptyKeysA}, bestand 2: {results.emptyKeysB}).
           </div>
         ) : null}
 
