@@ -5,7 +5,7 @@
 <img width="1844" height="1028" alt="image" src="https://github.com/user-attachments/assets/787da865-e673-4951-a3e1-5fe9bd2f73d4" />
 <img width="1820" height="801" alt="image" src="https://github.com/user-attachments/assets/68732b45-47af-4f95-920e-9241365bd83a" />
 <img width="1843" height="171" alt="image" src="https://github.com/user-attachments/assets/473c6c62-1672-476e-8aa0-e0bba5e6b729" />
-<img width="1842" height="1022" alt="image" src="https://github.com/user-attachments/assets/99d9c365-c7b5-44ed-9f06-6913ef4d864d" />
+<img width="1845" height="1028" alt="image" src="https://github.com/user-attachments/assets/98ad1eca-4aa5-45c5-95ea-e4cf7b6cb56f" />
 
 Eisencheck Lab is een webapp om twee Excel-bestanden te vergelijken op basis van een sleutelkolom en een of meer gekozen tekstkolommen. De app negeert volgorde, normaliseert zichtbare tekst (spaties/returns), en exporteert de verschillen naar Excel met een legenda en een apart tabblad voor vervallen eisen.
 
